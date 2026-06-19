@@ -1,0 +1,60 @@
+name: patients-management-system
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pms}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-pms} -d ${POSTGRES_DB:-pms}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pms}:${POSTGRES_PASSWORD:-pms_password}@db:5432/${POSTGRES_DB:-pms}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-please-use-a-long-random-string}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-true}
+      CHAOS_FAILURE_RATE: ${CHAOS_FAILURE_RATE:-0.12}
+      CHAOS_MIN_LATENCY_MS: ${CHAOS_MIN_LATENCY_MS:-100}
+      CHAOS_MAX_LATENCY_MS: ${CHAOS_MAX_LATENCY_MS:-800}
+    ports:
+      - '${API_PORT:-4000}:4000'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the Next rewrite at build time (proxy target on the Docker network).
+        API_INTERNAL_URL: http://api:4000
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+
+volumes:
+  pgdata:

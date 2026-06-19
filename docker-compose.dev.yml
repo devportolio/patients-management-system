@@ -1,0 +1,87 @@
+name: patients-management-system-dev
+
+# Development stack with hot reload.
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Your source is bind-mounted into the containers and the apps run in watch
+# mode (NestJS `--watch` + Next.js HMR). The container's node_modules and build
+# output are shielded with anonymous volumes so the host's macOS binaries never
+# clobber the container's Linux ones.
+
+x-source-mounts: &source-mounts
+  # Live source from the host.
+  - ./:/repo
+  # Anonymous volumes: keep the container's own (Linux) installs + build output
+  # so the host bind mount never hides them.
+  - /repo/node_modules
+  - /repo/apps/api/node_modules
+  - /repo/apps/web/node_modules
+  - /repo/apps/web/.next
+  # shared is consumed by the API from its compiled dist (built inside the image).
+  - /repo/packages/shared/node_modules
+  - /repo/packages/shared/dist
+  - /repo/packages/eslint-config/node_modules
+  - /repo/packages/typescript-config/node_modules
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pms}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-pms} -d ${POSTGRES_DB:-pms}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pms}:${POSTGRES_PASSWORD:-pms_password}@db:5432/${POSTGRES_DB:-pms}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-dev-secret-dev-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      WEB_ORIGIN: http://localhost:3000
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-true}
+      CHAOS_FAILURE_RATE: ${CHAOS_FAILURE_RATE:-0.12}
+      # Poll for file changes — reliable for bind mounts on macOS/Windows.
+      CHOKIDAR_USEPOLLING: 'true'
+    ports:
+      - '${API_PORT:-4000}:4000'
+    volumes: *source-mounts
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: development
+      # next dev evaluates rewrites at runtime, so the proxy target is read here.
+      API_INTERNAL_URL: http://api:4000
+      # Poll for file changes so HMR fires on bind-mounted source.
+      WATCHPACK_POLLING: 'true'
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    volumes: *source-mounts
+
+volumes:
+  pgdata_dev:

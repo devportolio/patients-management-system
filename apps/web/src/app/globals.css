@@ -1,0 +1,189 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens — Linear-inspired dark system (see DESIGN.md).
+ * Dark is the primary theme: near-black canvas (#010102), a four-step surface
+ * ladder, hairline borders, light-gray ink (#f7f8f8), and a single scarce
+ * lavender-blue accent (#5e6ad2). A restrained light theme is kept for the
+ * toggle. Values are HSL channels so Tailwind can compose alpha.
+ */
+@layer base {
+  /* ---- Dark (default / primary) ---- */
+  :root,
+  .dark {
+    /* Render native controls (date picker icon + calendar popup) dark to match. */
+    color-scheme: dark;
+
+    --background: 240 24% 1%; /* canvas #010102 */
+    --foreground: 220 13% 97%; /* ink #f7f8f8 */
+
+    --card: 220 11% 5%; /* surface-1 */
+    --card-foreground: 220 13% 97%;
+
+    --popover: 225 8% 10%; /* surface-3 — dropdowns / menus */
+    --popover-foreground: 220 13% 97%;
+
+    --primary: 234 56% 60%; /* lavender-blue #5e6ad2 */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 234 100% 75%; /* lighter lavender #828fff */
+
+    --secondary: 220 11% 6%; /* surface-1 — secondary button */
+    --secondary-foreground: 220 13% 97%;
+
+    --muted: 220 9% 8%; /* surface-2 */
+    --muted-foreground: 218 7% 57%; /* ink-subtle #8a8f98 */
+
+    --accent: 225 8% 11%; /* surface-3 — hover lift */
+    --accent-foreground: 220 13% 97%;
+
+    --destructive: 0 65% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 134 62% 40%; /* #27a644 */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 30 60% 12%;
+
+    --border: 223 9% 15%; /* hairline #23252a */
+    --input: 225 9% 20%; /* hairline-strong */
+    --ring: 234 56% 59%; /* primary-focus #5e69d1 */
+
+    --shadow-color: 0 0% 0%;
+    --radius: 0.75rem;
+  }
+
+  /* ---- Light (secondary, kept for the toggle) ---- */
+  .light {
+    color-scheme: light;
+
+    --background: 240 20% 99%;
+    --foreground: 240 18% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 18% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 18% 9%;
+
+    --primary: 234 52% 56%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 234 60% 64%;
+
+    --secondary: 240 20% 96%;
+    --secondary-foreground: 240 18% 14%;
+
+    --muted: 240 20% 96%;
+    --muted-foreground: 240 6% 45%;
+
+    --accent: 234 44% 96%;
+    --accent-foreground: 234 40% 30%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 134 60% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 48%;
+    --warning-foreground: 30 60% 14%;
+
+    --border: 240 16% 90%;
+    --input: 240 16% 88%;
+    --ring: 234 52% 56%;
+
+    --shadow-color: 240 30% 30%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* react-day-picker calendar, themed to our tokens (see Calendar / DatePicker).
+     Uses the library's base stylesheet for structure; we recolor via its CSS
+     variables + a few targeted overrides so it matches the Linear palette. */
+  .rdp-themed {
+    --rdp-accent-color: hsl(var(--primary));
+    --rdp-accent-background-color: hsl(var(--primary) / 0.15);
+    --rdp-today-color: hsl(var(--primary));
+    --rdp-disabled-opacity: 0.35;
+    --rdp-outside-opacity: 0.45;
+    margin: 0;
+  }
+  .rdp-themed .rdp-day_button {
+    border-radius: var(--radius);
+  }
+  .rdp-themed .rdp-day_button:hover {
+    background-color: hsl(var(--accent));
+  }
+  .rdp-themed .rdp-selected .rdp-day_button {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border: none;
+  }
+  .rdp-themed .rdp-chevron {
+    fill: hsl(var(--muted-foreground));
+  }
+  .rdp-themed .rdp-dropdown,
+  .rdp-themed .rdp-dropdown option {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--foreground));
+  }
+
+  /* Consistent, visible focus ring for keyboard users across the app. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Aggressive negative tracking on headings — Linear's display voice. */
+  h1,
+  h2,
+  h3 {
+    @apply tracking-tight;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+}
+
+@layer utilities {
+  /* Loading shimmer used by skeletons. */
+  .shimmer::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.05),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  /* Subtle top-edge highlight on lifted panels (the "pixel rendered" feel). */
+  .panel-highlight {
+    box-shadow: inset 0 1px 0 0 hsl(0 0% 100% / 0.04);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

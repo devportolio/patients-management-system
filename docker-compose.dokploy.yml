@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dokploy deployment compose.
+#
+# In Dokploy: create a "Compose" service, point it at this repo, and set the
+# compose path to `docker-compose.dokploy.yml`. Then add the environment
+# variables below in the Dokploy UI (Environment tab).
+#
+# Topology:
+#   • `web` is exposed publicly (via Dokploy's Traefik + Let's Encrypt) and
+#     proxies /api/* to `api` over the internal network — so the httpOnly auth
+#     cookie stays same-origin.
+#   • `api` is ALSO exposed on its own subdomain (API_DOMAIN) so the Swagger
+#     docs are reachable at https://<API_DOMAIN>/docs. This widens the public
+#     surface (the whole API is directly reachable) — intentional, for the docs.
+#   • `db` is internal only (no published ports, no domain).
+#
+# Required env vars (set in Dokploy):
+#   WEB_DOMAIN          e.g. patients.example.com   (the public web hostname)
+#   JWT_SECRET          a long random string
+#   POSTGRES_PASSWORD   a strong database password
+# Optional (have sane defaults):
+#   API_DOMAIN          public API hostname (default: api.<WEB_DOMAIN>) → /docs lives here
+#   POSTGRES_USER (pms) · POSTGRES_DB (pms) · JWT_EXPIRES_IN (15m)
+#   CHAOS_ENABLED (false) · TLS_CERTRESOLVER (letsencrypt)
+#
+# DNS: point both WEB_DOMAIN and API_DOMAIN at your Dokploy host.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-pms}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-pms} -d ${POSTGRES_DB:-pms}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pms}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      WEB_ORIGIN: https://${WEB_DOMAIN}
+      # Default OFF in a hosted deploy for a stable demo; set true to showcase resilience.
+      CHAOS_ENABLED: ${CHAOS_ENABLED:-false}
+      CHAOS_FAILURE_RATE: ${CHAOS_FAILURE_RATE:-0.12}
+    expose:
+      - '4000'
+    networks:
+      - internal
+      - dokploy-network # so Traefik can route the public API subdomain
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # HTTPS router (serves /docs, /docs-json, and the full API)
+      - traefik.http.routers.pms-api.rule=Host(`${API_DOMAIN:-api.${WEB_DOMAIN}}`)
+      - traefik.http.routers.pms-api.entrypoints=websecure
+      - traefik.http.routers.pms-api.tls.certresolver=${TLS_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.pms-api.loadbalancer.server.port=4000
+      # HTTP → HTTPS redirect
+      - traefik.http.routers.pms-api-insecure.rule=Host(`${API_DOMAIN:-api.${WEB_DOMAIN}}`)
+      - traefik.http.routers.pms-api-insecure.entrypoints=web
+      - traefik.http.routers.pms-api-insecure.middlewares=pms-https-redirect
+      - traefik.http.middlewares.pms-https-redirect.redirectscheme.scheme=https
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the Next rewrite at build time → proxy target on the internal network.
+        API_INTERNAL_URL: http://api:4000
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+      PORT: 3000
+    expose:
+      - '3000'
+    networks:
+      - dokploy-network # Traefik routes to services on this shared network
+      - internal # to reach `api`
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # HTTPS router
+      - traefik.http.routers.pms-web.rule=Host(`${WEB_DOMAIN}`)
+      - traefik.http.routers.pms-web.entrypoints=websecure
+      - traefik.http.routers.pms-web.tls.certresolver=${TLS_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.pms-web.loadbalancer.server.port=3000
+      # HTTP → HTTPS redirect
+      - traefik.http.routers.pms-web-insecure.rule=Host(`${WEB_DOMAIN}`)
+      - traefik.http.routers.pms-web-insecure.entrypoints=web
+      - traefik.http.routers.pms-web-insecure.middlewares=pms-https-redirect
+      - traefik.http.middlewares.pms-https-redirect.redirectscheme.scheme=https
+
+networks:
+  # Dokploy's shared Traefik network (created by Dokploy on the host).
+  dokploy-network:
+    external: true
+  # Private network for api ↔ db ↔ web internal traffic.
+  internal:
+
+volumes:
+  pgdata:
